@@ -1,13 +1,53 @@
 <?php
 
+
+    set_include_path('../phpseclib');
+
     include_once('config.php');
     include_once('autoload.php');
+    include_once('Net/SFTP.php');
 
     define('NET_SFTP_LOGGING', NET_SFTP_LOG_COMPLEX);
 
     global $appconfig, $logger;
 
     $logger = new ILog($appconfig['logger']['username'], "feed" . date('ymdhms') . ".log", $appconfigp['logger']['log_folder'], $appconfigp'logger']['log_priority']);
+    $mor = new Morcommon();
+    $db = $mor->standAloneAppConnect();
+    
+    if ( !$db ){
+        $logger->error( "Could not connect to database" );
+        exit(1);
+    }
+    $logger->debug( "Starting process: klaviyo feed" );
+
+    //Set default date variables
+    $fromDate = new IDate();
+    $toDate = new IDate();
+    $toDate = $toDate->setDate( date('m/d/Y',strtotime("-1 days")) );
+
+    if( $argc > 1 ){
+        $fromDate = $from->setDate( $argv[1] );
+        $to = $to->setDate( $argv[2] );
+    }
+
+    //SQL WHERE clause is built based on what dates are set; default is to query for yesterday's date, but will query for date range if beginning date is provided
+    $salesOrders = new SalesOrder($db);
+
+    $where = "WHERE STAT_CD = 'F' AND SO_STORE_CD NOT LIKE 'W%' AND ORD_TP_CD = 'SAL' AND FINAL_DT BETWEEN '" . $from-toStringOracle() . "' AND '" . $to->stringOracle() . "'";
+
+    $result = $salesOrdes->query($where);
+    if( $result < 0 ){
+        $logger->error( "Could not query table Sales Order. Where Clause: " . $where );
+        exit(1);
+    }
+
+    //Initializing arrays to be populated
+    $profiles = array();
+    $profilesTotal = array();
+    $orders = array();
+    $ordersTotal = array();
+    $invoices = array();
 
     function upload( $remotepath, $localpath, $filename ){
         $sftp = new Net_SFTP($appconfig['sftp']['host']);
@@ -57,53 +97,7 @@
         $return['total'] = $grandTotal;
         return $return;
     }
-
-    //Connecting to database specified in morinit.php, exiting upon failure to connect
-    echo "Connecting to DB...\n";
-    require_once('../config/morinit.php');
-    if (!$isDBConnected) {
-        echo "Connected to DB successfully\n";
-        return;
-    }
-
-    set_include_path('../phpseclib');
-    include 'Net/SFTP.php';
-
-    //Setting timezone to PST to accurately determine previous day's date
-    date_default_timezone_set('America/Los_Angeles');
-
-    //Defaulting end date to yesterday
-    $dateEnd = date_create();
-    date_sub($dateEnd,date_interval_create_from_date_string('1 day'));
-
-    //Defaulting start date to nothing
-    $dateStart = "";
-
-    //If input parameters are passed from command line, end and start dates are set to first and second command line arguments respectively
-    if (isset($argv[1])) {
-        $dateEnd = date_create($argv[1]);
-    }
-    if (isset($argv[2])) {
-        $dateStart = date_create($argv[2]);
-    }
-
-    //Passing in Klaviyo parameters from config file and constructing API URL
-    $klaviyo = $appconfig['klaviyo'];
-    $apiKey = $klaviyo['api_key'];
-    $outputPath = $klaviyo['output_path'];
-    $sftp = $klaviyo['csv_sftp'];
-    $apiPublic = $klaviyo['api_key_public'];
-
-    //SQL WHERE clause is built based on what dates are set; default is to query for yesterday's date, but will query for date range if beginning date is provided
-    $tabSO = new SalesOrder($db);
-    $where = "WHERE STAT_CD = 'F' AND SO_STORE_CD NOT LIKE 'W%' AND ORD_TP_CD = 'SAL'";
-    if ($dateStart == "") {
-        $where .= " AND FINAL_DT = '".strtoupper(date_format($dateEnd,'d-M-y'))."'";
-    }
-    else {
-        $where .= " AND FINAL_DT BETWEEN '".strtoupper(date_format($dateStart,'d-M-y'))."' AND '".strtoupper(date_format($dateEnd,'d-M-y'))."'";
-    }
-    echo "Querying with $where\n";
+    
     $result = $tabSO->query($where);
 
     //Initializing arrays to be populated
