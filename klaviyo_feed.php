@@ -9,7 +9,7 @@
 
     global $appconfig, $logger;
 
-    $logger = new ILog($appconfig['logger']['username'], "feed" . date('ymdhms') . ".log", $appconfigp['logger']['log_folder'], $appconfigp'logger']['log_priority']);
+    $logger = new ILog($appconfig['logger']['username'], "feed" . date('ymdhms') . ".log", $appconfigp['logger']['log_folder'], $appconfig['logger']['log_priority']);
     $mor = new Morcommon();
     $db = $mor->standAloneAppConnect();
     
@@ -26,165 +26,41 @@
 
     if( $argc > 1 ){
         $fromDate = $from->setDate( $argv[1] );
-        $to = $to->setDate( $argv[2] );
+        $toDate = $toDate->setDate( $argv[2] );
     }
-
-    //SQL WHERE clause is built based on what dates are set; default is to query for yesterday's date, but will query for date range if beginning date is provided
-    $salesOrders = new SalesOrder($db);
-
-    $where = "WHERE STAT_CD = 'F' AND SO_STORE_CD NOT LIKE 'W%' AND ORD_TP_CD = 'SAL' AND FINAL_DT BETWEEN '" . $from-toStringOracle() . "' AND '" . $to->stringOracle() . "'";
-
-    $result = $salesOrdes->query($where);
-    if( $result < 0 ){
-        $logger->error( "Could not query table Sales Order. Where Clause: " . $where );
-        exit(1);
-    }
-
-    //Initializing arrays to be populated
-    $profiles = array();
-    $orders = array();
-    $invoices = array();
-
-    //Iterating through result set of SQL query on SO for finalized orders for date or date range
-    while ($salesOrders->next()) {
-        //Creating instance arrays for single customer and invoice
-        $profile = array();
-        $invoice = array();
-
-        $salesOrderLines = getSalesOrderLines( $db, $salesOrder->get_DEL_DOC_NUM() ); 
-        $customerFinanceInfo = getFinanceCustomerInfo( $db, $salesOrders->get_CUST_CD() );
-        $custTotal = getCustOrders($db,$custCd);
-
-        //Populating instance array for single customer
-        $profile['email'] = $salesOrders->get_EMAIL_ADDR();
-        $profile['firstName'] = $salesOrders->get_FNAME();
-        $profile['lastName'] = $salesOrders->get_LNAME();
-        $profile['openToBuyAmount'] = $openToBuy;
-        $profile['emailOptIn'] = "TRUE";
-        $profile['SMSOptIn'] = $salesOrders->get_USR_FLD_2();
-        $profile['address'] = $salesOrders->get_SHIP_TO_ADDR1();
-        $profile['address2'] = $salesOrders->get_SHIP_TO_ADDR2();
-        $profile['city'] = $salesOrders->get_SHIP_TO_CITY();
-        $profile['state'] = $salesOrders->get_SHIP_TO_ST_CD();
-        $profile['zip'] = $salesOrders->get_SHIP_TO_ZIP_CD();
-        $profile['phone_number'] = "1".str_replace("-","",$salesOrders->get_SHIP_TO_H_PHONE());
-        $profile['secondaryPhone'] = "1".str_replace("-","",$salesOrders->get_SHIP_TO_B_PHONE());
-        $profile['lastStorePurchasedFrom'] = $salesOrders->get_SO_STORE_CD();
-        $profile['lastLoggedSalespersonId'] = $salesOrders->get_SO_EMP_SLSP_CD1();
-        $profile['lastLoggedSalespersonDate'] = date_format($orderDt,"n/j/Y");
-        $profile['source'] = "buyer";
-        $profile['synchronyCreditCard'] = $customerFinanceInfo['SYF']['HAS_ACCT'];
-        $profile['PreScreenSynchronyCard'] = $customerFinanceInfo['SYF']['HAS_ACCT'];
-        $profile['AFFCard'] = $customerFinanceInfo['AFF']['HAS_ACCT'];
-        $profile['genesisCard'] = $customerFinanceInfo['GENE']['HAS_ACCT'];
-        $profile['LastOrderDate'] = date_format($dateEnd,'n/j/Y');
-        $profile['LastOrderTotal'] = $subtotal + $taxChg + $setupChg;
-
-        //Getting information on total finalized orders for customer
-        $profile['TotalOrders'] = $custTotal['count'];
-        $profile['TotalRevenue'] = $custTotal['total'];
-        $profile['AverageOrderValue'] = number_format($custTotal['total']/$custTotal['count'],2);
-
-        //Checking condition variables; omitting profile if no email is set, email address is set to unsubscribe, or salesperson has been terminated
-        if ( $profile['EMAIL'] !== 'NSUBSCRIB' && !is_null($salesOrders->get_TERMDATE()) ) {
-            //Adding single customer array to profiles data array
-            array_push($profiles, $profile);
-
-            //Creating instance array for invoice to query for SKU data for orders data array; del doc num will be key and array of useful data will be value
-            $invoice['orderDate'] = date_format($orderDt,"n/j/Y g:i");
-            $invoice['email'] = $salesOrders->get_EMAIL_ADDR();
-            $invoice['subtotal'] = $subtotal;
-            $invoice['taxChg'] = $taxChg;
-            $invoice['setupChg'] = $setupChg;
-            $puDelDt = date_create( $salesOrders->get_PU_DEL_DT() );
-            $invoice['finalShipDate'] = date_format($puDelDt,"n/j/Y g:i");
-            $invoices[$delDocNum] = $invoice;
-        }
-    }
-    
+    $finalizedSales = processFinalizedOrders( $db, $fromDate, $toDate );
 
     //Split array into 100 elements sub arrays 
-    $profile_chunks = array_chunk( $profiles, 100 );
+    $profile_chunks = array_chunk( $finalizedSales['profiles'], 100 );
 
     $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks );
         
     //Create filename
-    $filename = sprintf( $appconfig['klaviyo']['filename'], $type, date("YmdHis") ); 
-    $error = generateCSV( $profiles, "contacts", $filename );
+    $filename = sprintf( $appconfig['klaviyo']['filename'], 'contacts', date("YmdHis") ); 
+    $error = generateCSV( $finalizedSales['profiles'], $filename );
     if( $error ){
-        $logger->debug("Could not Create CSV file MASTER LIST" );
+        $logger->debug("Could not Create CSV file profiles" );
     }
     $error = upload( $filename );
     if( $error ){
         $logger->debug("Could not upload file to SFTP: " . $filename );
     }
 
-    //Iterating through invoices from previous query
-    foreach ( $invoices as $invoice => $details ) {
-        //Initializing instance array for individual SKU
-        $order = array();
-
-        //Querying for individual SKUs on single invoice
-        $lines = new SOLine($db);
-        $where = "WHERE DEL_DOC_NUM = '".$invoice."'";
-        $result = $lines->query($where);
-
-        if( $result < 0 ){
-            $logger->error("Could not query SO_LN" );
-            exit(1);
-        }
-
-        //Iterating through result set of SQL query on SO_LN for individual SKUs for single invoice
-        while ($lines->next()) {
-            //Populating instance array with information from SKU's useful data array as well as result set from SO_LN query
-            $order['orderNumber'] = $invoice;
-            $order['orderDate'] = $details['orderDate'];
-            $order['orderStatus'] = 'PROCESSED';
-            $order['email'] = $details['email'];
-            $order['orderTotal'] = $details['subtotal'] + $details['taxChg'] + $details['setupChg'];
-            $order['orderSubtotal'] = $details['subtotal'];
-            $order['taxAmt'] = $details['taxChg'];
-            $order['shipAmt'] = '0';
-            $order['SKU'] = $lines->get_ITM_CD();
-            $order['qty'] = $lines->get_QTY();
-            $order['unitPrice'] = $lines->get_UNIT_PRC();
-            $order['totalPrice'] = $lines->get_UNIT_PRC() * $lines->get_QTY();
-            $order['deliveryType'] = $lines->get_PU_DEL();
-            $order['finalShipDate'] = $details['finalShipDate'];
-            $order['safeguard'] = $lines->get_VE_CD() == 'SAFE' ? 'Y' : 'N';
-
-            //Adding single SKU array to orders data array if void flag is not set to 'Y' and quantity is greater than zero
-            if ( $lines->get_VOID_FLAG() != 'Y'  && $lines->get_QTY() != '0' ){
-                $event = array();
-                $event['event'] = "Ordered Product";
-                $event['customer_properties'] = array('$email'=>$details['email']);
-                $event['properties'] = $order;
-
-                array_push($orders,$order);
-            }
-        }
-    }
-
+    $finalizedOrders = processInvoices( $db, $finalizedSales['invoices'] );
 
     //Generate CSV and upload to SFTP
-    
+    $filename = sprintf( $appconfig['klaviyo']['filename'], 'orders', date("YmdHis") ); 
+    $error = generateCSV($finalizedOrders['orders'], "orders");
+    if( $error ){
+        $logger->debug("Could not Create CSV file profiles" );
+    }
+    $error = upload( $filename );
+    if( $error ){
+        $logger->debug("Could not upload file to SFTP: " . $filename );
+    }
+
     //POST to klaviyo
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_endpoint'], $finalizedOrders['events'] );
 
     function upload($filename ){
         global $appconfig;
@@ -239,6 +115,8 @@
             $result = curl_exec($ch);
             $data = json_decode($result);
         }
+        return $result;
+
     }
 
     function getSalesOrderLines( $db, $delDocNum ){
@@ -260,7 +138,7 @@
 
 
     //Function to generate CSV for uploaded data
-    function generateCSV( $data, $type, $filename ) {
+    function generateCSV( $data, $filename ) {
         //Generating timestamp CSV file name
         try {
             $file = fopen( $appconfig['klaviyo']['out'] . $filename, "w" );
@@ -302,5 +180,135 @@
         $return['total'] = $grandTotal;
         return $return;
     }
+
+    function processInvoices( $db, $invoices ){
+        $orders = array();
+        $events = array();
+
+        //Iterating through invoices from previous query
+        foreach ( $invoices as $invoice => $details ) {
+            //Initializing instance array for individual SKU
+            $order = array();
+
+            //Querying for individual SKUs on single invoice
+            $lines = new SOLine($db);
+            $where = "WHERE DEL_DOC_NUM = '" . $invoice . "'";
+            $result = $lines->query($where);
+
+            if( $result < 0 ){
+                $logger->error("Could not query SO_LN" );
+                exit(1);
+            }
+
+            //Iterating through result set of SQL query on SO_LN for individual SKUs for single invoice
+            while ($lines->next()) {
+                //Populating instance array with information from SKU's useful data array as well as result set from SO_LN query
+                $order['orderNumber'] = $invoice;
+                $order['orderDate'] = $details['orderDate'];
+                $order['orderStatus'] = 'PROCESSED';
+                $order['email'] = $details['email'];
+                $order['orderTotal'] = $details['subtotal'] + $details['taxChg'] + $details['setupChg'];
+                $order['orderSubtotal'] = $details['subtotal'];
+                $order['taxAmt'] = $details['taxChg'];
+                $order['shipAmt'] = '0';
+                $order['SKU'] = $lines->get_ITM_CD();
+                $order['qty'] = $lines->get_QTY();
+                $order['unitPrice'] = $lines->get_UNIT_PRC();
+                $order['totalPrice'] = $lines->get_UNIT_PRC() * $lines->get_QTY();
+                $order['deliveryType'] = $lines->get_PU_DEL();
+                $order['finalShipDate'] = $details['finalShipDate'];
+                $order['safeguard'] = $lines->get_VE_CD() == 'SAFE' ? 'Y' : 'N';
+
+                //Adding single SKU array to orders data array if void flag is not set to 'Y' and quantity is greater than zero
+                if ( $lines->get_VOID_FLAG() != 'Y'  && $lines->get_QTY() != '0' ){
+                    $event = array();
+                    $event['event'] = "Ordered Product";
+                    $event['customer_properties'] = array('$email'=>$details['email']);
+                    $event['properties'] = $order;
+
+                    array_push( $orders, $order );
+                    array_push( $events, $event );
+                }
+            }
+        }
+
+        return array( "orders" => $orders, "events" => $events );
+    }
+
+    function processFinalizedOrders( $db, $fromDate, $toDate ){
+        //Initializing arrays to be populated
+        $profiles = array();
+        $invoices = array();
+        $salesOrders = new SalesOrder($db);
+
+        //SQL WHERE clause is built based on what dates are set; default is to query for yesterday's date, but will query for date range if beginning date is provided
+        $where = "WHERE STAT_CD = 'F' AND SO_STORE_CD NOT LIKE 'W%' AND ORD_TP_CD = 'SAL' AND FINAL_DT BETWEEN '" . $from-toStringOracle() . "' AND '" . $to->stringOracle() . "'";
+        $result = $salesOrdes->query($where);
+        if( $result < 0 ){
+            $logger->error( "Could not query table Sales Order. Where Clause: " . $where );
+            exit(1);
+        }
+
+        //Iterating through result set of SQL query on SO for finalized orders for date or date range
+        while ($salesOrders->next()) {
+            //Creating instance arrays for single customer and invoice
+            $profile = array();
+            $invoice = array();
+
+            $salesOrderLines = getSalesOrderLines( $db, $salesOrder->get_DEL_DOC_NUM() ); 
+            $customerFinanceInfo = getFinanceCustomerInfo( $db, $salesOrders->get_CUST_CD() );
+            $custTotal = getCustOrders( $db,$custCd );
+
+            //Populating instance array for single customer
+            $profile['email'] = $salesOrders->get_EMAIL_ADDR();
+            $profile['firstName'] = $salesOrders->get_FNAME();
+            $profile['lastName'] = $salesOrders->get_LNAME();
+            $profile['openToBuyAmount'] = $openToBuy;
+            $profile['emailOptIn'] = "TRUE";
+            $profile['SMSOptIn'] = $salesOrders->get_USR_FLD_2();
+            $profile['address'] = $salesOrders->get_SHIP_TO_ADDR1();
+            $profile['address2'] = $salesOrders->get_SHIP_TO_ADDR2();
+            $profile['city'] = $salesOrders->get_SHIP_TO_CITY();
+            $profile['state'] = $salesOrders->get_SHIP_TO_ST_CD();
+            $profile['zip'] = $salesOrders->get_SHIP_TO_ZIP_CD();
+            $profile['phone_number'] = "1".str_replace("-","",$salesOrders->get_SHIP_TO_H_PHONE());
+            $profile['secondaryPhone'] = "1".str_replace("-","",$salesOrders->get_SHIP_TO_B_PHONE());
+            $profile['lastStorePurchasedFrom'] = $salesOrders->get_SO_STORE_CD();
+            $profile['lastLoggedSalespersonId'] = $salesOrders->get_SO_EMP_SLSP_CD1();
+            $profile['lastLoggedSalespersonDate'] = date_format($orderDt,"n/j/Y");
+            $profile['source'] = "buyer";
+            $profile['synchronyCreditCard'] = $customerFinanceInfo['SYF']['HAS_ACCT'];
+            $profile['PreScreenSynchronyCard'] = $customerFinanceInfo['SYF']['HAS_ACCT'];
+            $profile['AFFCard'] = $customerFinanceInfo['AFF']['HAS_ACCT'];
+            $profile['genesisCard'] = $customerFinanceInfo['GENE']['HAS_ACCT'];
+            $profile['LastOrderDate'] = date_format($dateEnd,'n/j/Y');
+            $profile['LastOrderTotal'] = $subtotal + $taxChg + $setupChg;
+
+            //Getting information on total finalized orders for customer
+            $profile['TotalOrders'] = $custTotal['count'];
+            $profile['TotalRevenue'] = $custTotal['total'];
+            $profile['AverageOrderValue'] = number_format($custTotal['total']/$custTotal['count'],2);
+
+            //Checking condition variables; omitting profile if no email is set, email address is set to unsubscribe, or salesperson has been terminated
+            if ( $profile['EMAIL'] !== 'NSUBSCRIB' && !is_null($salesOrders->get_TERMDATE()) ) {
+                //Adding single customer array to profiles data array
+                array_push($profiles, $profile);
+
+                //Creating instance array for invoice to query for SKU data for orders data array; del doc num will be key and array of useful data will be value
+                $invoice['orderDate'] = date_format($orderDt,"n/j/Y g:i");
+                $invoice['email'] = $salesOrders->get_EMAIL_ADDR();
+                $invoice['subtotal'] = $subtotal;
+                $invoice['taxChg'] = $taxChg;
+                $invoice['setupChg'] = $setupChg;
+                $puDelDt = date_create( $salesOrders->get_PU_DEL_DT() );
+                $invoice['finalShipDate'] = date_format($puDelDt,"n/j/Y g:i");
+                $invoices[$delDocNum] = $invoice;
+            }
+        }
+
+        return array( 'profiles' => $profiles, 'invoices' => $invoices );
+    }
+    
+
 
 ?>
