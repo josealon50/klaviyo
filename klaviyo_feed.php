@@ -1,6 +1,4 @@
 <?php
-
-
     set_include_path('../phpseclib');
 
     include_once('config.php');
@@ -45,7 +43,6 @@
     //Initializing arrays to be populated
     $profiles = array();
     $orders = array();
-    $ordersTotal = array();
     $invoices = array();
 
     //Iterating through result set of SQL query on SO for finalized orders for date or date range
@@ -95,7 +92,7 @@
 
             //Creating instance array for invoice to query for SKU data for orders data array; del doc num will be key and array of useful data will be value
             $invoice['orderDate'] = date_format($orderDt,"n/j/Y g:i");
-            $invoice['email'] = $email;
+            $invoice['email'] = $salesOrders->get_EMAIL_ADDR();
             $invoice['subtotal'] = $subtotal;
             $invoice['taxChg'] = $taxChg;
             $invoice['setupChg'] = $setupChg;
@@ -128,13 +125,17 @@
         $order = array();
 
         //Querying for individual SKUs on single invoice
-        $tabSOLn = new SOLine($db);
+        $lines = new SOLine($db);
         $where = "WHERE DEL_DOC_NUM = '".$invoice."'";
-        $result = $tabSOLn->query($where);
+        $result = $lines->query($where);
+
+        if( $result < 0 ){
+            $logger->error("Could not query SO_LN" );
+            exit(1);
+        }
 
         //Iterating through result set of SQL query on SO_LN for individual SKUs for single invoice
-        while ($tabSOLn->next()) {
-
+        while ($lines->next()) {
             //Populating instance array with information from SKU's useful data array as well as result set from SO_LN query
             $order['orderNumber'] = $invoice;
             $order['orderDate'] = $details['orderDate'];
@@ -144,58 +145,31 @@
             $order['orderSubtotal'] = $details['subtotal'];
             $order['taxAmt'] = $details['taxChg'];
             $order['shipAmt'] = '0';
-            $order['SKU'] = $tabSOLn->get_ITM_CD();
-            $order['qty'] = $tabSOLn->get_QTY();
-            $order['unitPrice'] = $tabSOLn->get_UNIT_PRC();
-            $order['totalPrice'] = $tabSOLn->get_UNIT_PRC() * $tabSOLn->get_QTY();
-            $order['deliveryType'] = $tabSO->get_PU_DEL();
+            $order['SKU'] = $lines->get_ITM_CD();
+            $order['qty'] = $lines->get_QTY();
+            $order['unitPrice'] = $lines->get_UNIT_PRC();
+            $order['totalPrice'] = $lines->get_UNIT_PRC() * $lines->get_QTY();
+            $order['deliveryType'] = $lines->get_PU_DEL();
             $order['finalShipDate'] = $details['finalShipDate'];
-
-            //Querying for whether an individual SKU is a safeguard item and setting safeguard to Y if so
-            $itmCd = $tabSOLn->get_ITM_CD();
-            $safeguard = 'N';
-            $tabItm = new Item($db);
-            $where = "WHERE ITM_CD = '$itmCd'";
-            $resultItm = $tabItm->query($where);
-            if ($tabItm->next()) {
-                if ($tabItm->get_VE_CD() == "SAFE") {
-                    $safeguard = 'Y';
-                }
-            }
-            $order['safeguard'] = $safeguard;
-
-            //Initializing and evaluating condition variables for void flag and quantity
-            $notVoid = true;
-            if ($tabSOLn->get_VOID_FLAG() == "Y") {
-                $notVoid = false;
-            }
-            $nonzeroQty = true;
-            if ($tabSOLn->get_QTY() == "0") {
-                $nonzeroQty = false;
-            }
+            $order['safeguard'] = $lines->get_VE_CD() == 'SAFE' ? 'Y' : 'N';
 
             //Adding single SKU array to orders data array if void flag is not set to 'Y' and quantity is greater than zero
-            if ($notVoid && $nonzeroQty){
+            if ( $lines->get_VOID_FLAG() != 'Y'  && $lines->get_QTY() != '0' ){
                 $event = array();
-                $event['token'] = $apiPublic;
                 $event['event'] = "Ordered Product";
                 $event['customer_properties'] = array('$email'=>$details['email']);
                 $event['properties'] = $order;
-                $eventData = json_encode($event, JSON_UNESCAPED_SLASHES);
-                $eventData = base64_encode($eventData);
-                $url = "https://a.klaviyo.com/api/track?data=".$eventData;
-                $result = file_get_contents($url);
 
                 array_push($orders,$order);
-                if (sizeof($orders) == 100) {
-                    array_push($ordersTotal,$orders);
-                    $orders = array();
-                }
             }
         }
     }
 
 
+    //Generate CSV and upload to SFTP
+    
+    //POST to klaviyo
+    
 
 
 
@@ -328,97 +302,5 @@
         $return['total'] = $grandTotal;
         return $return;
     }
-    
-
-    //Iterating through invoices from previous query
-    foreach ($invoices as $invoice=>$details) {
-
-        //Initializing instance array for individual SKU
-        $order = array();
-
-        //Querying for individual SKUs on single invoice
-        $tabSOLn = new SOLine($db);
-        $where = "WHERE DEL_DOC_NUM = '".$invoice."'";
-        $result = $tabSOLn->query($where);
-
-        //Iterating through result set of SQL query on SO_LN for individual SKUs for single invoice
-        while ($tabSOLn->next()) {
-
-            //Populating instance array with information from SKU's useful data array as well as result set from SO_LN query
-            $order['orderNumber'] = $invoice;
-            $order['orderDate'] = $details['orderDate'];
-            $order['orderStatus'] = 'PROCESSED';
-            $order['email'] = $details['email'];
-            $order['orderTotal'] = $details['subtotal'] + $details['taxChg'] + $details['setupChg'];
-            $order['orderSubtotal'] = $details['subtotal'];
-            $order['taxAmt'] = $details['taxChg'];
-            $order['shipAmt'] = '0';
-            $order['SKU'] = $tabSOLn->get_ITM_CD();
-            $order['qty'] = $tabSOLn->get_QTY();
-            $order['unitPrice'] = $tabSOLn->get_UNIT_PRC();
-            $order['totalPrice'] = $tabSOLn->get_UNIT_PRC() * $tabSOLn->get_QTY();
-            $order['deliveryType'] = $tabSO->get_PU_DEL();
-            $order['finalShipDate'] = $details['finalShipDate'];
-
-            //Querying for whether an individual SKU is a safeguard item and setting safeguard to Y if so
-            $itmCd = $tabSOLn->get_ITM_CD();
-            $safeguard = 'N';
-            $tabItm = new Item($db);
-            $where = "WHERE ITM_CD = '$itmCd'";
-            $resultItm = $tabItm->query($where);
-            if ($tabItm->next()) {
-                if ($tabItm->get_VE_CD() == "SAFE") {
-                    $safeguard = 'Y';
-                }
-            }
-            $order['safeguard'] = $safeguard;
-
-            //Initializing and evaluating condition variables for void flag and quantity
-            $notVoid = true;
-            if ($tabSOLn->get_VOID_FLAG() == "Y") {
-                $notVoid = false;
-            }
-            $nonzeroQty = true;
-            if ($tabSOLn->get_QTY() == "0") {
-                $nonzeroQty = false;
-            }
-
-            //Adding single SKU array to orders data array if void flag is not set to 'Y' and quantity is greater than zero
-            if ($notVoid && $nonzeroQty){
-                $event = array();
-                $event['token'] = $apiPublic;
-                $event['event'] = "Ordered Product";
-                $event['customer_properties'] = array('$email'=>$details['email']);
-                $event['properties'] = $order;
-                $eventData = json_encode($event, JSON_UNESCAPED_SLASHES);
-                $eventData = base64_encode($eventData);
-                $url = "https://a.klaviyo.com/api/track?data=".$eventData;
-                $result = file_get_contents($url);
-
-                array_push($orders,$order);
-                if (sizeof($orders) == 100) {
-                    array_push($ordersTotal,$orders);
-                    $orders = array();
-                }
-            }
-        }
-    }
-    array_push($ordersTotal,$orders);
-
-    $ordersOutput = array();
-    foreach ($ordersTotal as $orders) {
-        $products = array();
-        $products['api_key'] = $apiKey;
-        $products['profiles'] = $orders;
-        foreach ($orders as $order) {
-            array_push($ordersOutput,$order);
-        }
-    }
-    generateCSV($ordersOutput,"orders"p);
-
-    //Exiting program
-    curl_close($ch);
-    return;
-
 
 ?>
