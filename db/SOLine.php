@@ -116,7 +116,12 @@ class SOLine extends IDBTable {
                                 );
 
 
-        $this->dbcolumns_function = array();
+        $this->dbcolumns_function = array( 
+                                      'TAX_RESP' => 'SO_LN.TAX_RESP'
+                                    , 'SPIFF' => 'SO_LN.SPIFF'
+                                    , 'COMM_CD' => 'SO_LN.COMM_CD' 
+                                    , 'ITM_CD' => 'SO_LN.ITM_CD' 
+        );
 
 		$this->errorMsg 			= "";
 
