@@ -22,7 +22,7 @@ class SalesOrder extends IDBTable {
 							,	'SO_EMP_SLSP_CD1' => 'SO_EMP_SLSP_CD1'
 							,	'SHIP_TO_B_PHONE' => 'SHIP_TO_B_PHONE'
 							,	'SHIP_TO_B_PHONE' => 'SHIP_TO_B_PHONE'
-							,	'PUL_DEL_DT'=>'PU_DEL_DT'
+							,	'PU_DEL_DT'=>'PU_DEL_DT'
 							,   'EMAIL_ADDR'=>'EMAIL_ADDR'
                             ,   'FNAME'=>'FNAME'
                             ,   'LNAME'=>'LNAME'
@@ -32,6 +32,12 @@ class SalesOrder extends IDBTable {
 								'SO_WR_DT'
 							,	'PU_DEL_DT'
 						);
-	}
-}
+        $this->dbcolumns_function = array( 
+                                "CUST_CD"  => "CUST.CUST_CD CUST_CD"    
+                            ,   "FNAME"  => "CUST.FNAME FNAME"  
+                            ,   "LNAME"  => "CUST.LNAME LNAME"  
+                            ,   "EMAIL_ADDR"  => "CUST.EMAIL_ADDR EMAIL_ADDR" 
+        );  
+    } 
+} 
 ?>

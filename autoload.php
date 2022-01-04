@@ -1,8 +1,9 @@
 <?php
 
-function SynchronyAutoload($className){ 
+function KlaviyoAutoload($className){ 
     $array_paths = array(
         'libs',
+        'src',
         'db'
     );
     foreach($array_paths as $path)

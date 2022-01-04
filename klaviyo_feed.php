@@ -1,5 +1,7 @@
 <?php
-    set_include_path('../phpseclib');
+    date_default_timezone_set('America/Los_Angeles');
+
+    set_include_path('./libs/phpseclib');
 
     include_once('config.php');
     include_once('autoload.php');
@@ -9,7 +11,7 @@
 
     global $appconfig, $logger;
 
-    $logger = new ILog($appconfig['logger']['username'], "feed" . date('ymdhms') . ".log", $appconfigp['logger']['log_folder'], $appconfig['logger']['log_priority']);
+    $logger = new ILog($appconfig['logger']['username'], "feed" . date('ymdhms') . ".log", $appconfig['logger']['log_folder'], $appconfig['logger']['priority']);
     $mor = new Morcommon();
     $db = $mor->standAloneAppConnect();
     
@@ -21,46 +23,111 @@
 
     //Set default date variables
     $fromDate = new IDate();
+    $fromDate = $fromDate->setDate( date('m/d/Y',strtotime("-1 days")), IDate::ORACLE_FORMAT );
     $toDate = new IDate();
-    $toDate = $toDate->setDate( date('m/d/Y',strtotime("-1 days")) );
+    $toDate = $toDate->toStringOracle();
 
     if( $argc > 1 ){
         $fromDate = $from->setDate( $argv[1] );
+        $fromDate = $fromDate->toStringOracle();
         $toDate = $toDate->setDate( $argv[2] );
+        $toDate = $toDate->toStringOracle();
     }
+
+    $logger->debug( "Processing finalized orders" );
     $finalizedSales = processFinalizedOrders( $db, $fromDate, $toDate );
-
-    //Split array into 100 elements sub arrays 
     $profile_chunks = array_chunk( $finalizedSales['profiles'], 100 );
-
     $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks );
-        
+    $logger->debug( "Finished processing finalized orders" );
     //Create filename
-    $filename = sprintf( $appconfig['klaviyo']['filename'], 'contacts', date("YmdHis") ); 
+    $filename = sprintf( $appconfig['klaviyo']['filename'], 'finalized_orders', date("YmdHis") ); 
     $error = generateCSV( $finalizedSales['profiles'], $filename );
     if( $error ){
         $logger->debug("Could not Create CSV file profiles" );
     }
+    /*
     $error = upload( $filename );
     if( $error ){
         $logger->debug("Could not upload file to SFTP: " . $filename );
     }
+     */
 
     $finalizedOrders = processInvoices( $db, $finalizedSales['invoices'] );
-
+    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_endpoint'], $finalizedOrders['events'] );
     //Generate CSV and upload to SFTP
-    $filename = sprintf( $appconfig['klaviyo']['filename'], 'orders', date("YmdHis") ); 
+    $filename = sprintf( $appconfig['klaviyo']['filename'], 'finalized_track_orders', date("YmdHis") ); 
     $error = generateCSV($finalizedOrders['orders'], "orders");
     if( $error ){
         $logger->debug("Could not Create CSV file profiles" );
     }
+    /*
     $error = upload( $filename );
     if( $error ){
         $logger->debug("Could not upload file to SFTP: " . $filename );
     }
+     */
 
-    //POST to klaviyo
-    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_endpoint'], $finalizedOrders['events'] );
+    $logger->debug( "Processing open orders" );
+    $openOrders = processOpenOrders( $db, $fromDate, $toDate );
+    $profile_chunks = array_chunk( $openOrders['profiles'], 100 );
+    $logger->debug( "Posting to klaviyo open orders" );
+    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks );
+    $logger->debug( "Processing inovices from open orders" );
+    $openOrdersEvents = processInvoices( $db, $openOrders['invoices'] );
+    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_endpoint'], $openOrdersEvents['events'] );
+
+    //Generate CSV and upload to SFTP
+    $logger->debug( "Generating CSV for open orders" );
+    $filename = sprintf( $appconfig['klaviyo']['filename'], 'open_orders', date("YmdHis") ); 
+    $error = generateCSV($openOrdersEvents['orders'], "orders");
+    if( $error ){
+        $logger->debug("Could not Create CSV file profiles" );
+    }
+    $logger->debug( "Uploading CSV for open orders to SFTP" );
+    /*
+    $error = upload( $filename );
+    if( $error ){
+        $logger->debug("Could not upload file to SFTP: " . $filename );
+    }
+     */
+    $filename = sprintf( $appconfig['klaviyo']['filename'], 'open_track_orders', date("YmdHis") ); 
+    $error = generateCSV( $openOrders['profiles'], $filename );
+    if( $error ){
+        $logger->debug("Could not Create CSV file profiles" );
+    }
+    /*
+    $error = upload( $filename );
+    if( $error ){
+        $logger->debug("Could not upload file to SFTP: " . $filename );
+    }
+     */
+
+
+    $logger->debug( "Querying customer prospects" );
+    $prospects = processCustomerProspects( $db, $fromDate, $toDate );
+    if( count($prospects) > 0 ){
+        $logger->debug( "Customer prospects found" );
+        $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_prospects'], $prospects );
+
+        $filename = sprintf( $appconfig['klaviyo']['filename'], 'customer_prospects', date("YmdHis") ); 
+        $error = generateCSV( $prospects, $filename );
+        if( $error ){
+            $logger->debug("Could not Create CSV file for customer prospects" );
+        }
+        /*
+        $error = upload( $filename );
+        if( $error ){
+            $logger->debug("Could not upload file to SFTP: " . $filename );
+        }
+         */
+    }
+    else{
+        $logger->debug( "No customer prospects found" );
+    }
+
+
+
+    $logger->debug( "Finishing process: klaviyo feed" );
 
     function upload($filename ){
         global $appconfig;
@@ -72,7 +139,7 @@
             exit(1);
         }
         else{
-            $upload = $sftp->put( $appconfig['klaviyo'['remote_sftp_path'] . $filename, $appconfig['klaviyo']['out'] . $filename, NET_SFTP_LOCAL_FILE );
+            $upload = $sftp->put( $appconfig['klaviyo']['remote_sftp_path'] . $filename, $appconfig['klaviyo']['out'] . $filename, NET_SFTP_LOCAL_FILE );
         }
     }
 
@@ -99,6 +166,7 @@
     function postToKlaviyo( $url, $data ){
         global $appcofig; 
 
+        $result = '';
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type:application/json'));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -139,6 +207,7 @@
 
     //Function to generate CSV for uploaded data
     function generateCSV( $data, $filename ) {
+        global $appconfig, $logger;
         //Generating timestamp CSV file name
         try {
             $file = fopen( $appconfig['klaviyo']['out'] . $filename, "w" );
@@ -235,46 +304,75 @@
         return array( "orders" => $orders, "events" => $events );
     }
 
+    function processOpenOrders( $db, $fromDate, $toDate ){
+        global $appconfig, $logger;
+
+        //Initializing arrays to be populated
+        $salesOrders = new SalesOrder($db);
+
+        //SQL WHERE clause is built based on what dates are set; default is to query for yesterday's date, but will query for date range if beginning date is provided
+        $where = "WHERE STAT_CD = 'O' AND SO_STORE_CD NOT LIKE 'W%' AND ORD_TP_CD = 'SAL' AND FINAL_DT BETWEEN '" . $fromDate . "' AND '" . $toDate . "'";
+        $result = $salesOrders->query($where);
+        if( $result < 0 ){
+            $logger->error( "Could not query table Sales Order. Where Clause: " . $where );
+            exit(1);
+        }
+
+        return processSales( $db, $salesOrders );
+
+
+    }
+
     function processFinalizedOrders( $db, $fromDate, $toDate ){
+        global $appconfig, $logger;
+
         //Initializing arrays to be populated
         $profiles = array();
         $invoices = array();
         $salesOrders = new SalesOrder($db);
 
         //SQL WHERE clause is built based on what dates are set; default is to query for yesterday's date, but will query for date range if beginning date is provided
-        $where = "WHERE STAT_CD = 'F' AND SO_STORE_CD NOT LIKE 'W%' AND ORD_TP_CD = 'SAL' AND FINAL_DT BETWEEN '" . $from-toStringOracle() . "' AND '" . $to->stringOracle() . "'";
-        $result = $salesOrdes->query($where);
+        $where = "WHERE STAT_CD = 'F' AND SO_STORE_CD NOT LIKE 'W%' AND ORD_TP_CD = 'SAL' AND FINAL_DT BETWEEN '" . $fromDate . "' AND '" . $toDate . "'";
+        $result = $salesOrders->query($where);
         if( $result < 0 ){
             $logger->error( "Could not query table Sales Order. Where Clause: " . $where );
             exit(1);
         }
 
+        return processSales( $db, $salesOrders );
+
+    }
+
+    function processSales( $db, $data ){
+        $profiles = array();
+        $invoices = array();
+
         //Iterating through result set of SQL query on SO for finalized orders for date or date range
-        while ($salesOrders->next()) {
+        while ($data->next()) {
             //Creating instance arrays for single customer and invoice
             $profile = array();
             $invoice = array();
 
             $salesOrderLines = getSalesOrderLines( $db, $salesOrder->get_DEL_DOC_NUM() ); 
-            $customerFinanceInfo = getFinanceCustomerInfo( $db, $salesOrders->get_CUST_CD() );
+            $customerFinanceInfo = getFinanceCustomerInfo( $db, $data->get_CUST_CD() );
             $custTotal = getCustOrders( $db,$custCd );
 
             //Populating instance array for single customer
-            $profile['email'] = $salesOrders->get_EMAIL_ADDR();
-            $profile['firstName'] = $salesOrders->get_FNAME();
-            $profile['lastName'] = $salesOrders->get_LNAME();
+            $profile['email'] = $data->get_EMAIL_ADDR();
+            $profile['firstName'] = $data->get_FNAME();
+            $profile['lastName'] = $data->get_LNAME();
             $profile['openToBuyAmount'] = $openToBuy;
             $profile['emailOptIn'] = "TRUE";
-            $profile['SMSOptIn'] = $salesOrders->get_USR_FLD_2();
-            $profile['address'] = $salesOrders->get_SHIP_TO_ADDR1();
-            $profile['address2'] = $salesOrders->get_SHIP_TO_ADDR2();
-            $profile['city'] = $salesOrders->get_SHIP_TO_CITY();
-            $profile['state'] = $salesOrders->get_SHIP_TO_ST_CD();
-            $profile['zip'] = $salesOrders->get_SHIP_TO_ZIP_CD();
-            $profile['phone_number'] = "1".str_replace("-","",$salesOrders->get_SHIP_TO_H_PHONE());
-            $profile['secondaryPhone'] = "1".str_replace("-","",$salesOrders->get_SHIP_TO_B_PHONE());
-            $profile['lastStorePurchasedFrom'] = $salesOrders->get_SO_STORE_CD();
-            $profile['lastLoggedSalespersonId'] = $salesOrders->get_SO_EMP_SLSP_CD1();
+            $profile['SMSOptIn'] = $data->get_USR_FLD_2();
+            $profile['address'] = $data->get_SHIP_TO_ADDR1();
+            $profile['address2'] = $data->get_SHIP_TO_ADDR2();
+            $profile['city'] = $data->get_SHIP_TO_CITY();
+            $profile['state'] = $data->get_SHIP_TO_ST_CD();
+            $profile['zip'] = $data->get_SHIP_TO_ZIP_CD();
+            $profile['phone_number'] = "1".str_replace("-","",$data->get_SHIP_TO_H_PHONE());
+            $profile['secondaryPhone'] = "1".str_replace("-","",$data->get_SHIP_TO_B_PHONE());
+            $profile['lastStorePurchasedFrom'] = $data->get_SO_STORE_CD();
+            $profile['lastLoggedSalespersonId'] = $data->get_SO_EMP_SLSP_CD1();
             $profile['lastLoggedSalespersonDate'] = date_format($orderDt,"n/j/Y");
             $profile['source'] = "buyer";
             $profile['synchronyCreditCard'] = $customerFinanceInfo['SYF']['HAS_ACCT'];
@@ -290,23 +388,54 @@
             $profile['AverageOrderValue'] = number_format($custTotal['total']/$custTotal['count'],2);
 
             //Checking condition variables; omitting profile if no email is set, email address is set to unsubscribe, or salesperson has been terminated
-            if ( $profile['EMAIL'] !== 'NSUBSCRIB' && !is_null($salesOrders->get_TERMDATE()) ) {
+            if ( $profile['EMAIL'] !== 'NSUBSCRIB' && !is_null($data->get_TERMDATE()) ) {
                 //Adding single customer array to profiles data array
                 array_push($profiles, $profile);
 
                 //Creating instance array for invoice to query for SKU data for orders data array; del doc num will be key and array of useful data will be value
                 $invoice['orderDate'] = date_format($orderDt,"n/j/Y g:i");
-                $invoice['email'] = $salesOrders->get_EMAIL_ADDR();
+                $invoice['email'] = $data->get_EMAIL_ADDR();
                 $invoice['subtotal'] = $subtotal;
                 $invoice['taxChg'] = $taxChg;
                 $invoice['setupChg'] = $setupChg;
-                $puDelDt = date_create( $salesOrders->get_PU_DEL_DT() );
+                $puDelDt = date_create( $data->get_PU_DEL_DT() );
                 $invoice['finalShipDate'] = date_format($puDelDt,"n/j/Y g:i");
                 $invoices[$delDocNum] = $invoice;
             }
         }
 
         return array( 'profiles' => $profiles, 'invoices' => $invoices );
+
+    }
+
+    function processCustomerProspects( $db, $fromDate, $toDate ){
+        global $appconfig, $logger;
+        $prospects = new CustomerProspects($db);
+        $where = "WHERE CREATED_AT > '" . $fromDate . "' AND CREATED_AT <= '" . $toDate . "' ";
+
+        $result = $prospects->query($where);
+        if ( $result < 0 ){
+           $logger->debug( "ERROR querying table cust_prospect" ); 
+           exit(1);
+        }
+        $customers = array();
+        while( $prospects->next() ){
+            $tmp = [
+                'FNAME' => $prospects->get_FNAME(),
+                'LNAME' => $prospects->get_LNAME(),
+                'EMAIL' => $prospects->get_EMAIL(),
+                'PHONE' => $prospects->get_PHONE(),
+                'EMP_CD' => $prospects->get_EMP_CD(),
+                'EMP_CD2' => $prospects->get_EMP_CD2(),
+                'ORDER_PLACED' => $prospects->get_ORDER_PLACED()
+            ];
+            
+            array_push( $customers, $tmp );
+        }
+
+        return $customers;
+
+
     }
     
 
