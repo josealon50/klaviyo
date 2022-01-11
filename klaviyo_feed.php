@@ -63,7 +63,6 @@
     if( $error ){
         $logger->debug("Could not upload file to SFTP: " . $filename );
     }
-
     $logger->debug( "Processing open orders" );
     $openOrders = processOpenOrders( $db, $fromDate, $toDate );
     $profile_chunks = array_chunk( $openOrders['profiles'], 100 );
@@ -150,7 +149,7 @@
     }
 
     function postToKlaviyo( $url, $data ){
-        global $appconfig; 
+        global $appconfig, $logger; 
 
         $result = '';
         $ch = curl_init($url);
@@ -160,7 +159,7 @@
         //Performing cURL HTTP POST on profiles and orders JSON objects and echoing return JSON objects
         foreach ($data as $d) {
             $body = array();
-            $body['api_key'] = $appconfig['klaviyo']['api_key_public'];
+            $body['api_key'] = $appconfig['klaviyo']['api_key'];
             $body['profiles'] = $d;
             $body = json_encode($body);
 
@@ -168,8 +167,9 @@
 
             $result = curl_exec($ch);
             $data = json_decode($result);
+            $logger->debug("POST klaviyo " . print_r($result, 3) );
         }
-        return $result;
+        return $data;
 
     }
 
@@ -297,7 +297,7 @@
         $salesOrders = new SalesOrder($db);
 
         //SQL WHERE clause is built based on what dates are set; default is to query for yesterday's date, but will query for date range if beginning date is provided
-        $where = "WHERE STAT_CD = 'O' AND SO_STORE_CD NOT LIKE 'W%' AND ORD_TP_CD = 'SAL' AND FINAL_DT BETWEEN '" . $fromDate . "' AND '" . $toDate . "'";
+        $where = "WHERE STAT_CD = 'O' AND SO_STORE_CD NOT LIKE 'W%' AND ORD_TP_CD = 'SAL' AND SO_WR_DT BETWEEN '" . $fromDate . "' AND '" . $toDate . "'";
         $result = $salesOrders->query($where);
         if( $result < 0 ){
             $logger->error( "Could not query table Sales Order. Where Clause: " . $where );
@@ -409,13 +409,11 @@
         $customers = array();
         while( $prospects->next() ){
             $tmp = [
-                'FNAME' => $prospects->get_FNAME(),
-                'LNAME' => $prospects->get_LNAME(),
-                'EMAIL' => $prospects->get_EMAIL(),
-                'PHONE' => $prospects->get_PHONE(),
-                'EMP_CD' => $prospects->get_EMP_CD(),
-                'EMP_CD2' => $prospects->get_EMP_CD2(),
-                'ORDER_PLACED' => $prospects->get_ORDER_PLACED()
+                'firstName' => $prospects->get_FNAME(),
+                'lastName' => $prospects->get_LNAME(),
+                'email' => $prospects->get_EMAIL(),
+                'phone_number' => $prospects->get_PHONE(),
+                'lastLoggedSalesPersonId' => $prospects->get_EMP_CD(),
             ];
             
             array_push( $customers, $tmp );
