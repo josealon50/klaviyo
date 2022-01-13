@@ -1,4 +1,24 @@
 <?php
+    /*************************************************************************
+     *************************************************************************
+     *************************************************************************
+     * klaviyo_feed
+     * Usage: If no parameters passed will use default date range that is 
+     * from yesterday to today.If command line arguments are passed dates 
+     * need to be in Oracle format (12-May-21).
+     * Hig Level Description: Program will query for open and finalized orders 
+     * on table SO and then will generate a profiles array that will contain 
+     * customer information and an invoice array that will hold the sale inf-
+     * ormation and their lines. Program also keeps track of customer purch-
+     * ases. Program also queries customer prospects and will add the mains kl-
+     * aviyo master list. 
+     *
+     * Output: 
+     *
+     *************************************************************************
+     *************************************************************************
+     ************************************************************************/
+
     date_default_timezone_set('America/Los_Angeles');
 
     set_include_path('./libs/phpseclib');
@@ -34,15 +54,20 @@
         $toDate = $toDate->toStringOracle();
     }
 
+    /**********
+     *
+     * Processing Finalized Orders
+     *
+     ***********/
     $logger->debug( "Processing finalized orders" );
     $finalizedSales = processFinalizedOrders( $db, $fromDate, $toDate );
     $profile_chunks = array_chunk( $finalizedSales['profiles'], 100 );
-    //$klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks, array('Content-Type:application/json'));
+    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks, array('Content-Type:application/json'));
     $logger->debug( "Finished processing finalized orders" );
 
-    //Create filename
+    //Create filename and generate filename 
     $filename = sprintf( $appconfig['klaviyo']['filename'], 'finalized_orders', date("YmdHis") ); 
-    $error = generateCSV( $finalizedSales['profiles'], $filename );
+    $error = generateCSV( $finalizedSales['profiles'], $filename, $appconfig['klaviyo']['order_profile_header'] );
     if( $error ){
         $logger->debug("Could not Create CSV file profiles" );
     }
@@ -56,28 +81,47 @@
     $klaviyoPost = postKlaviyoTrackEvents( $appconfig['klaviyo']['track_endpoint'], $finalizedOrders['events'], array('Accept' => 'text/html', 'Content-Type' => 'application/x-www-form-urlencoded') );
     //Generate CSV and upload to SFTP
     $filename = sprintf( $appconfig['klaviyo']['filename'], 'finalized_track_orders', date("YmdHis") ); 
-    $error = generateCSV($finalizedOrders['orders'], $filename );
+    $error = generateCSV($finalizedOrders['orders'], $filename, $appconfig['klaviyo']['order_invoice_header'] );
     if( $error ){
         $logger->debug("Could not Create CSV file events" );
     }
-
     $error = upload( $filename );
     if( $error ){
         $logger->debug("Could not upload file to SFTP: " . $filename );
     }
+
+    /**********
+     *
+     * Processing Open Orders
+     *
+     ***********/
     $logger->debug( "Processing open orders" );
     $openOrders = processOpenOrders( $db, $fromDate, $toDate );
     $profile_chunks = array_chunk( $openOrders['profiles'], 100 );
     $logger->debug( "Posting to klaviyo open orders" );
     $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks, array('Content-Type:application/json') );
+
+    //Generate CSV file and upload
+    $filename = sprintf( $appconfig['klaviyo']['filename'], 'open_orders', date("YmdHis") ); 
+    $error = generateCSV( $openOrders['profiles'], $filename, $appconfig['klaviyo']['order_profile_header'] );
+    if( $error ){
+        $logger->debug("Could not Create CSV file profiles" );
+    }
+    $error = upload( $filename );
+    if( $error ){
+        $logger->debug("Could not upload file to SFTP: " . $filename );
+    }
+
+    //Processing Open invoices to track orders
     $logger->debug( "Processing inovices from open orders" );
     $openOrdersEvents = processInvoices( $db, $openOrders['invoices'] );
-    $klaviyoPost = postKlaviyoTrackEvents( $appconfig['klaviyo']['track_endpoint'], $openOrdersEvents['events'], array('Accept: text/html', 'Content-Type: application/x-www-form-urlencoded') );
+    $openOrdersEventsChunks = array_chunk( $openOrdersEvents['events'], 100 );
+    $klaviyoPost = postKlaviyoTrackEvents( $appconfig['klaviyo']['track_endpoint'], $openOrdersEventsChunks, array('Accept: text/html', 'Content-Type: application/x-www-form-urlencoded') );
 
     //Generate CSV and upload to SFTP
     $logger->debug( "Generating CSV for open orders" );
     $filename = sprintf( $appconfig['klaviyo']['filename'], 'open_orders', date("YmdHis") ); 
-    $error = generateCSV($openOrdersEvents['orders'], $filename);
+    $error = generateCSV($openOrdersEvents['orders'], $filename, $appconfig['klaviyo']['order_invoice_header']);
     if( $error ){
         $logger->debug("Could not Create CSV file profiles" );
     }
@@ -88,23 +132,21 @@
         $logger->debug("Could not upload file to SFTP: " . $filename );
     }
 
-    $filename = sprintf( $appconfig['klaviyo']['filename'], 'open_track_orders', date("YmdHis") ); 
-    $error = generateCSV( $openOrders['profiles'], $filename );
-    if( $error ){
-        $logger->debug("Could not Create CSV file profiles" );
-    }
-    $error = upload( $filename );
-    if( $error ){
-        $logger->debug("Could not upload file to SFTP: " . $filename );
-    }
 
+    /**********
+     *
+     * Processing Customer Prospects 
+     *
+     ***********/
 
     $logger->debug( "Querying customer prospects" );
     $prospects = processCustomerProspects( $db, $fromDate, $toDate );
-    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_prospects'], $prospects, array('Content-Type:application/json') );
+    $prospectsChunks = array_chunk($prospects, 100 );
+    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_prospects'], $prospectsChunks, array('Content-Type:application/json') );
 
+    //Generate CSV and upload 
     $filename = sprintf( $appconfig['klaviyo']['filename'], 'customer_prospects', date("YmdHis") ); 
-    $error = generateCSV( $prospects, $filename );
+    $error = generateCSV( $prospects, $filename, $appconfig['klaviyo']['cust_prospect_header'] );
     if( $error ){
         $logger->debug("Could not Create CSV file for customer prospects" );
     }
@@ -113,8 +155,15 @@
         $logger->debug("Could not upload file to SFTP: " . $filename );
     }
 
-
     $logger->debug( "Finishing process: klaviyo feed" );
+
+    /**************
+     *
+     * END EXECUTION
+     *
+     **************/
+
+
 
     function upload($filename ){
         global $appconfig, $logger;
@@ -179,12 +228,12 @@
         global $appconfig, $logger; 
 
         $result = '';
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
         //Performing cURL HTTP POST on profiles and orders JSON objects and echoing return JSON objects
         foreach ($data as $d) {
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
             $body = array();
             $body['api_key'] = $appconfig['klaviyo']['api_key'];
             $body['profiles'] = $d;
@@ -219,11 +268,12 @@
 
 
     //Function to generate CSV for uploaded data
-    function generateCSV( $data, $filename ) {
+    function generateCSV( $data, $filename, $header ) {
         global $appconfig, $logger;
         //Generating timestamp CSV file name
         try {
             $file = fopen( $appconfig['klaviyo']['out'] . $filename, "w" );
+            fputcsv( $file, $header );
             foreach( $data as $line ) {
                 fputcsv( $file, array_values($line) );
             }
