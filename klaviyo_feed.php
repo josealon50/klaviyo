@@ -3,7 +3,7 @@
 
     set_include_path('./libs/phpseclib');
 
-    include_once('config.php');
+    include_once('../config.php');
     include_once('autoload.php');
     include_once('Net/SFTP.php');
 
@@ -37,8 +37,9 @@
     $logger->debug( "Processing finalized orders" );
     $finalizedSales = processFinalizedOrders( $db, $fromDate, $toDate );
     $profile_chunks = array_chunk( $finalizedSales['profiles'], 100 );
-    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks );
+    //$klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks, array('Content-Type:application/json'));
     $logger->debug( "Finished processing finalized orders" );
+
     //Create filename
     $filename = sprintf( $appconfig['klaviyo']['filename'], 'finalized_orders', date("YmdHis") ); 
     $error = generateCSV( $finalizedSales['profiles'], $filename );
@@ -51,12 +52,13 @@
     }
 
     $finalizedOrders = processInvoices( $db, $finalizedSales['invoices'] );
-    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_endpoint'], $finalizedOrders['events'] );
+    $profile_chunks = array_chunk( $finalizedOrders['events'], 100 );
+    $klaviyoPost = postKlaviyoTrackEvents( $appconfig['klaviyo']['track_endpoint'], $finalizedOrders['events'], array('Accept' => 'text/html', 'Content-Type' => 'application/x-www-form-urlencoded') );
     //Generate CSV and upload to SFTP
     $filename = sprintf( $appconfig['klaviyo']['filename'], 'finalized_track_orders', date("YmdHis") ); 
     $error = generateCSV($finalizedOrders['orders'], $filename );
     if( $error ){
-        $logger->debug("Could not Create CSV file profiles" );
+        $logger->debug("Could not Create CSV file events" );
     }
 
     $error = upload( $filename );
@@ -67,10 +69,10 @@
     $openOrders = processOpenOrders( $db, $fromDate, $toDate );
     $profile_chunks = array_chunk( $openOrders['profiles'], 100 );
     $logger->debug( "Posting to klaviyo open orders" );
-    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks );
+    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks, array('Content-Type:application/json') );
     $logger->debug( "Processing inovices from open orders" );
     $openOrdersEvents = processInvoices( $db, $openOrders['invoices'] );
-    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_endpoint'], $openOrdersEvents['events'] );
+    $klaviyoPost = postKlaviyoTrackEvents( $appconfig['klaviyo']['track_endpoint'], $openOrdersEvents['events'], array('Accept: text/html', 'Content-Type: application/x-www-form-urlencoded') );
 
     //Generate CSV and upload to SFTP
     $logger->debug( "Generating CSV for open orders" );
@@ -99,7 +101,7 @@
 
     $logger->debug( "Querying customer prospects" );
     $prospects = processCustomerProspects( $db, $fromDate, $toDate );
-    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_prospects'], $prospects );
+    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_prospects'], $prospects, array('Content-Type:application/json') );
 
     $filename = sprintf( $appconfig['klaviyo']['filename'], 'customer_prospects', date("YmdHis") ); 
     $error = generateCSV( $prospects, $filename );
@@ -148,12 +150,37 @@
         return $financeCustomerInfo;
     }
 
-    function postToKlaviyo( $url, $data ){
+    function postKlaviyoTrackEvents( $url, $data, $headers ){
         global $appconfig, $logger; 
 
         $result = '';
         $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type:application/json'));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+
+        foreach( $data as $d ){
+            $body = json_encode($d);
+            $body = ltrim($body, '[' );
+            $body = rtrim($body, ']' );
+            curl_setopt($ch, CURLOPT_POSTFIELDS, "data=".$body);
+
+            $output = curl_exec($ch);
+            $info = curl_getinfo($ch);
+            curl_close($ch);
+
+            $logger->debug("POST klaviyo track events " . print_r($output, 1) );
+        }
+        return $data;
+
+    }
+
+    function postToKlaviyo( $url, $data, $headers ){
+        global $appconfig, $logger; 
+
+        $result = '';
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
         //Performing cURL HTTP POST on profiles and orders JSON objects and echoing return JSON objects
@@ -237,6 +264,7 @@
     }
 
     function processInvoices( $db, $invoices ){
+        global $appconfig;
         $orders = array();
         $events = array();
 
@@ -262,7 +290,7 @@
                 $order['orderDate'] = $details['orderDate'];
                 $order['orderStatus'] = 'PROCESSED';
                 $order['email'] = $details['email'];
-                $order['orderTotal'] = $details['subtotal'] + $details['taxChg'] + $details['setupChg'];
+                $order['orderTotal'] = number_format( floatval(preg_replace('/[^\d\.]/', '', $details['subtotal'])) + $details['taxChg'] + $details['setupChg'], 2 );
                 $order['orderSubtotal'] = $details['subtotal'];
                 $order['taxAmt'] = $details['taxChg'];
                 $order['shipAmt'] = '0';
@@ -275,8 +303,9 @@
                 $order['safeguard'] = $lines->get_VE_CD() == 'SAFE' ? 'Y' : 'N';
 
                 //Adding single SKU array to orders data array if void flag is not set to 'Y' and quantity is greater than zero
-                if ( $lines->get_VOID_FLAG() != 'Y'  && $lines->get_QTY() != '0' ){
+                if ( $lines->get_VOID_FLAG() !== 'Y'  && $lines->get_QTY() !== '0' ){
                     $event = array();
+                    $event['token'] = $appconfig['klaviyo']['api_key'];
                     $event['event'] = "Ordered Product";
                     $event['customer_properties'] = array('$email'=>$details['email']);
                     $event['properties'] = $order;
@@ -286,7 +315,6 @@
                 }
             }
         }
-
         return array( "orders" => $orders, "events" => $events );
     }
 
@@ -330,11 +358,15 @@
     }
 
     function processSales( $db, $data ){
+        global $appconfig; 
         $profiles = array();
         $invoices = array();
 
         //Iterating through result set of SQL query on SO for finalized orders for date or date range
         while ($data->next()) {
+            if ( is_null($data->get_EMAIL_ADDR()) ){
+                continue;
+            }
             //Creating instance arrays for single customer and invoice
             $profile = array();
             $invoice = array();
@@ -374,21 +406,23 @@
             $profile['AverageOrderValue'] = $custTotal['total'] != 0 ? number_format($custTotal['total'] / $custTotal['count'], 2) : $custTotal['total'];
 
             //Checking condition variables; omitting profile if no email is set, email address is set to unsubscribe, or salesperson has been terminated
-            if ( $profile['email'] !== 'NSUBSCRIB' && is_null($data->get_TERMDATE()) ) {
-                //Adding single customer array to profiles data array
-                array_push($profiles, $profile);
+            if ( !is_null($profile['email']) ){
+                if ( $profile['email'] !== 'NSUBSCRIB' && is_null($data->get_TERMDATE()) ) {
+                    //Adding single customer array to profiles data array
+                    array_push($profiles, $profile);
 
-                //Creating instance array for invoice to query for SKU data for orders data array; del doc num will be key and array of useful data will be value
-                $invoice['orderDate'] = date_format(new DateTime($data->get_SO_WR_DT()), "n/j/Y g:i");
-                $invoice['orderType'] = $data->get_STAT_CD() == 'O' ? 'OPEN' : 'FINALIZED';
-                $invoice['email'] = $data->get_EMAIL_ADDR();
-                $invoice['subtotal'] = '$' . number_format($salesOrderLinesTotal, 2);
-                $invoice['taxChg'] = $data->get_TAX_CHG();
-                $invoice['setupChg'] = $data->get_SETUP_CHG();
+                    //Creating instance array for invoice to query for SKU data for orders data array; del doc num will be key and array of useful data will be value
+                    $invoice['orderDate'] = date_format(new DateTime($data->get_SO_WR_DT()), "n/j/Y g:i");
+                    $invoice['orderType'] = $data->get_STAT_CD() == 'O' ? 'OPEN' : 'FINALIZED';
+                    $invoice['email'] = $data->get_EMAIL_ADDR();
+                    $invoice['subtotal'] = '$' . number_format($salesOrderLinesTotal, 2);
+                    $invoice['taxChg'] = $data->get_TAX_CHG();
+                    $invoice['setupChg'] = $data->get_SETUP_CHG();
 
-                $puDelDt = date_create( $data->get_PU_DEL_DT() );
-                $invoice['finalShipDate'] = date_format($puDelDt,"n/j/Y g:i");
-                $invoices[$data->get_DEL_DOC_NUM()] = $invoice;
+                    $puDelDt = date_create( $data->get_PU_DEL_DT() );
+                    $invoice['finalShipDate'] = date_format($puDelDt,"n/j/Y g:i");
+                    $invoices[$data->get_DEL_DOC_NUM()] = $invoice;
+                }
             }
         }
 
