@@ -154,12 +154,12 @@
         global $appconfig, $logger; 
 
         $result = '';
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-
         foreach( $data as $d ){
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+
             $body = json_encode($d);
             $body = ltrim($body, '[' );
             $body = rtrim($body, ']' );
