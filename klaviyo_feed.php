@@ -571,7 +571,7 @@
             $profile['lastLoggedSalespersonName'] = $data->get_EMP_NAME();
             $profile['lastLoggedSalespersonId'] = $data->get_SO_EMP_SLSP_CD1();
             $profile['lastLoggedSalespersonDate'] = date_format(new DateTime($data->get_SO_WR_DT()), "n/j/Y");
-            $profile['source'] = "buyer";
+            $profile['source'] = "BUYER";
             $profile['synchronyCreditCard'] = $customerFinanceInfo['SYF']['HAS_ACCT'];
             $profile['PreScreenSynchronyCard'] = $customerFinanceInfo['SYF']['HAS_ACCT'];
             $profile['AFFCard'] = $customerFinanceInfo['AFF']['HAS_ACCT'];
@@ -655,7 +655,7 @@
                 'lastStorePurchasedFrom' => '',
                 'lastLoggedSalesPersonId' => $prospects->get_EMP_CD(),
                 'lastLoggedSalespersonDate' => '',
-                'source' => 'prospect',
+                'source' => 'PROSPECT',
                 'synchronyCreditCard' => '',
                 'PreScreenSynchronyCard' => '',
                 'AFFCard' => '',

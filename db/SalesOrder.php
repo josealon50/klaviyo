@@ -7,6 +7,7 @@ class SalesOrder extends IDBTable {
 		$this->dbcolumns = array(
 								'DEL_DOC_NUM' => 'DEL_DOC_NUM'
 							,	'CUST_CD' => 'CUST_CD'
+							,	'STAT_CD' => 'STAT_CD'
 							,	'TAX_CHG' => 'TAX_CHG'
 							,	'SETUP_CHG' => 'SETUP_CHG'
 							,	'SO_WR_DT' => 'SO_WR_DT'
