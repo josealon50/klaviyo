@@ -11,9 +11,9 @@
  * *        - 2 Dates: 12-May-21, 13-May-21
  * *
  * * Out: CSVs generated files
- * *---------------------------------------------------------------------------------------------------------------------
+ * *-------------------------------------------------------------------------------------------------------------------------------------
  * * 01/11/21   JL  Created Script
- * * 01/13/21   JL  Added comments, and changed structure for customer prospects
+ * * 01/13/21   JL  Added comments, and changed structure for customer prospects, added new function that creates the log folders
  * *
  * *
 ***/
@@ -31,6 +31,7 @@
     global $appconfig, $logger;
 
     $logger = new ILog($appconfig['klaviyo']['logger']['username'], date('ymdhms') . ".log", $appconfig['klaviyo']['logger']['log_folder'], $appconfig['klaviyo']['logger']['priority']);
+
     $mor = new Morcommon();
     $db = $mor->standAloneAppConnect();
     
@@ -56,15 +57,17 @@
     $customerFilename = sprintf( $appconfig['klaviyo']['filename'], 'customers', date("YmdHis") ); 
     $ordersFilename = sprintf( $appconfig['klaviyo']['filename'], 'order_items', date("YmdHis") ); 
 
+    //Check if folder exists for this month and year
+    $outPath = createdOutFolder();
+    $logger->debug("Out folder: " . $outPath );
 
     // Processing Finalized Orders
     $logger->debug( "Processing finalized orders" );
     $finalizedSales = processFinalizedOrders( $db, $fromDate, $toDate );
-    var_dump($finalizedSales);
     $profile_chunks = array_chunk( $finalizedSales['profiles'], 100 );
     $logger->debug( "Posting to klaviyo finalized orders" );
     $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks, array('Content-Type:application/json'));
-    $error = generateCSV( $finalizedSales['profiles'], $customerFilename, $appconfig['klaviyo']['order_profile_header'] );
+    $error = generateCSV( $finalizedSales['profiles'], $outPath, $customerFilename, $appconfig['klaviyo']['order_profile_header'] );
     if ( $error ) $logger->error( "Error generating csv for finalized orders" );
     $logger->debug( "Finished processing finalized orders" );
     
@@ -75,7 +78,7 @@
     $logger->debug( "Posting to klaviyo finalized orders lines" );
     $klaviyoPost = postKlaviyoTrackEvents( $appconfig['klaviyo']['track_endpoint'], $finalizedOrders['events'], array('Accept' => 'text/html', 'Content-Type' => 'application/x-www-form-urlencoded') );
     //Generate CSV and upload to SFTP
-    $error = generateCSV($finalizedOrders['orders'], $ordersFilename, $appconfig['klaviyo']['order_invoice_header'] );
+    $error = generateCSV($finalizedOrders['orders'], $outPath, $ordersFilename, $appconfig['klaviyo']['order_invoice_header'] );
     if ( $error ) $logger->error( "Error generating csv for finalized orders lines" );
     $logger->debug( "Finished finalized orders lines" );
 
@@ -86,7 +89,7 @@
     $profile_chunks = array_chunk( $openOrders['profiles'], 100 );
     $logger->debug( "Posting to klaviyo open orders" );
     $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks, array('Content-Type:application/json') );
-    $error = generateCSV( $openOrders['profiles'], $customerFilename, '' );
+    $error = generateCSV( $openOrders['profiles'], $outPath, $customerFilename, '' );
     if ( $error ) $logger->error( "Could not generate CSV file for open orders" );
     $logger->debug( "Finished processing open orders" );
     
@@ -97,7 +100,7 @@
     $logger->debug( "Posting to klaviyo open orders lines" );
     $klaviyoPost = postKlaviyoTrackEvents( $appconfig['klaviyo']['track_endpoint'], $openOrdersEventsChunks, array('Accept: text/html', 'Content-Type: application/x-www-form-urlencoded') );
     $logger->debug( "Generating CSV for open orders" );
-    $error = generateCSV($openOrdersEvents['orders'], $ordersFilename, '' );
+    $error = generateCSV($openOrdersEvents['orders'], $outPath, $ordersFilename, '' );
     if ( $error ) $logger->error( "Could not generate CSV file for open orders lines" );
     $logger->debug( "Finished processing open orders lines" );
 
@@ -108,17 +111,33 @@
     $prospectsChunks = array_chunk($prospects, 100 );
     $logger->debug( "Posting customer prospects to  klaviyo" );
     $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_prospects'], $prospectsChunks, array('Content-Type:application/json') );
-    $error = generateCSV( $prospects, $customerFilename, ''  );
+    $error = generateCSV( $prospects, $outPath, $customerFilename, ''  );
     if( $error ) $logger->error("Could not Create CSV file for customer prospects" );
 
     $logger->debug( "Finishing process: klaviyo feed" );
     //END EXECUTION
 
+
+
+
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * Upload: 
+     * *    Uploads generated CSV to an SFTP
+     * * Arguments: 
+     * *    Filename: name of the file to upload
+     * *
+     * * Return: TRUE success, otherwise false 
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function upload($filename ){
         global $appconfig, $logger;
 
-        $sftp = new Net_SFTP($appconfig['sftp']['host']);
-        if (!$sftp->login($appconfig['sftp']['username'], $appconfig['sftp']['pw'])) {
+        $sftp = new Net_SFTP($appconfig['klaviyo']['sftp']['host']);
+        if (!$sftp->login($appconfig['klaviyo']['sftp']['username'], $appconfig['klaviyo']['sftp']['pw'])) {
             //Log error statement
             $logger->error("SFTP connection failed could not upload filename: " . $filename);
             //exit(1);
@@ -128,6 +147,23 @@
         }
     }
 
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * getFinanceCustomerInfo: 
+     * *   Get finance customer info  
+     * * Arguments: 
+     * *    db: IDB database connection object
+     * *    customerCode: Customer Code 
+     * *
+     * * Return: Array with following data 
+     * *       'SYF' => [ 'OPEN_TO_BUY' => 0, 'HAS_ACCT' => 'N' ],
+     * *       'AFF' => [ 'OPEN_TO_BUY' => 0, 'HAS_ACCT' => 'N' ],
+     * *       'GENE' => [ 'OPEN_TO_BUY' => 0, 'HAS_ACCT' => 'N' ]
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function getFinanceCustomerInfo ( $db, $customerCode ){
         $custAsp = new CustAsp($db);
         $where = "WHERE CUST_CD = '" . $customerCode . "'";
@@ -148,6 +184,22 @@
         return $financeCustomerInfo;
     }
 
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * postKlaviyoTrackEvents: 
+     * *   POST to klaviyo order lines to track endpoint
+     * * Arguments: 
+     * *    url: Endpoint URL 
+     * *    data: data to POST 
+     * *    headers: POST headers 
+     * *
+     * * Return: curl return data
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function postKlaviyoTrackEvents( $url, $data, $headers ){
         global $appconfig, $logger; 
 
@@ -173,6 +225,22 @@
 
     }
 
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * postToKlaviyo: 
+     * *   POST to klaviyo master list  endpoint
+     * * Arguments: 
+     * *    url: Endpoint URL 
+     * *    data: data to POST 
+     * *    headers: POST headers 
+     * *
+     * * Return: curl return data
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function postToKlaviyo( $url, $data, $headers ){
         global $appconfig, $logger; 
 
@@ -198,6 +266,21 @@
 
     }
 
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * getSalesOrderLines: 
+     * *    Queries SO_LN and sums the line total cost 
+     * * Arguments: 
+     * *    db: IDBT datbase connection Object
+     * *    delDocNum: DEL_DOC_NUM 
+     * *
+     * * Return: subtotal of line 
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function getSalesOrderLines( $db, $delDocNum ){
         //Querying for individual SKUs on single invoice
         $tabSOLn = new SOLine($db);
@@ -216,12 +299,28 @@
     }
 
 
-    //Function to generate CSV for uploaded data
-    function generateCSV( $data, $filename, $header='' ) {
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * generateCSV: 
+     * *   Generate CSV file on $path directoy with filename and heeader 
+     * * Arguments: 
+     * *    data: CSV data 
+     * *    path: path to where it should be saves 
+     * *    filename: file name 
+     * *    header: header row
+     * *
+     * * Return: TRUE for success false otherwise 
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
+    function generateCSV( $data, $path, $filename, $header='' ) {
         global $appconfig, $logger;
         //Generating timestamp CSV file name
         try {
-            $file = fopen( $appconfig['klaviyo']['out'] . $filename, "a+" );
+            $file = fopen( $path . $filename, "a+" );
             if ( $header !== '' ){
                 fputcsv( $file, $header );
             }
@@ -238,6 +337,21 @@
         }
     }
 
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * getCustOrders: 
+     * *   Get customer orders by customer code 
+     * * Arguments: 
+     * *    db: IDBT database connectoin 
+     * *    custCd: Customer code 
+     * *
+     * * Return: Returns  
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function getCustOrders($db,$custCd) {
         $tabSO = new SalesOrder($db);
         $where = "WHERE SO.CUST_CD = '$custCd' AND STAT_CD = 'F'";
@@ -264,6 +378,21 @@
         return $return;
     }
 
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * processInvoices: 
+     * *   Process invoices return array with order and customer information 
+     * * Arguments: 
+     * *    db: IDBT database connectoin 
+     * *    invices: array of invoices 
+     * *
+     * * Returns: Array with order info 
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function processInvoices( $db, $invoices ){
         global $appconfig;
         $orders = array();
@@ -319,6 +448,22 @@
         return array( "orders" => $orders, "events" => $events );
     }
 
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * processOpenOrders: 
+     * *   Function will query for open orders in SO and calls function procesSales
+     * * Arguments: 
+     * *    db: IDBT database connectoin 
+     * *    fromDate: FROM date 
+     * *    toDate: TO Date
+     * *
+     * * Returns: Array with customer and order info 
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function processOpenOrders( $db, $fromDate, $toDate ){
         global $appconfig, $logger;
 
@@ -338,6 +483,22 @@
 
     }
 
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * processFinalizedOrders: 
+     * *   Function will query for finalized orders in SO and calls function procesSales
+     * * Arguments: 
+     * *    db: IDBT database connectoin 
+     * *    fromDate: FROM date 
+     * *    toDate: TO Date
+     * *
+     * * Returns: Array with customer and order info 
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function processFinalizedOrders( $db, $fromDate, $toDate ){
         global $appconfig, $logger;
 
@@ -358,6 +519,22 @@
 
     }
 
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * processSales: 
+     * *   Function will iterate throught the result set from open and finalized order and build a profile array will hold customer infomation
+     *  and DEL_DOC_NUM order information 
+     * * Arguments: 
+     * *    db: IDBT database connectoin 
+     * *    data: Result set from SO  
+     * *
+     * * Returns: Array with customer and order info 
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function processSales( $db, $data ){
         global $appconfig; 
         $profiles = array();
@@ -431,6 +608,23 @@
 
     }
 
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * processCustomerProspects: 
+     * *   Function will query table CUSTOMER_PROSPECT and will fetch and customers created the day before  
+     *  and DEL_DOC_NUM order information 
+     * * Arguments: 
+     * *    db: IDBT database connectoin 
+     * *    fromDate: From Date  
+     * *    toDate: To Date 
+     * *
+     * * Returns: Array with customer prospect info 
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
     function processCustomerProspects( $db, $fromDate, $toDate ){
         global $appconfig, $logger;
         $prospects = new CustomerProspects($db);
@@ -454,7 +648,8 @@
                 'address2' => '',
                 'city' => '',
                 'state' => '',
-                'phone_number' => "1" . str_replace("-", "", $prospects->get_PHONE()),
+                'zip' => '',
+                'phone_number' => $prospects->get_PHONE() !== '' ? "1" . str_replace("-", "", $prospects->get_PHONE()) : '',
                 'secondaryPhone' => '',
                 'lastStorePurchasedFrom' => '',
                 'lastLoggedSalesPersonId' => $prospects->get_EMP_CD(),
@@ -474,12 +669,37 @@
             array_push( $customers, $tmp );
         }
 
-            var_dump($customers);
         return $customers;
-
-
     }
-    
+
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+    /*********************************************************************************************************************************************
+     * * createOutFolder: 
+     * *   Function will create recursively path for the out folder if it does not exist
+     * * Arguments: 
+     * *
+     * * Returns: Path to folders created 
+     * *
+     * *
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************
+     *********************************************************************************************************************************************/
+    function createdOutFolder(){
+        global $appconfig, $logger;
+
+        $year = date("Y");
+        $month = date("F");
+        $directory = $appconfig['klaviyo']['out'] . "$year/$month/";
+        if(!is_dir($directory)){
+            //Create our directory.
+            mkdir($directory, 0755, true);
+            $logger->debug("Folder created: " . $directory);
+            return $directory;
+        }
+        $logger->debug("Folder already created");
+        return $directory;
+    }
 
 
 ?>
