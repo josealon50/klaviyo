@@ -418,7 +418,7 @@
                 //Populating instance array with information from SKU's useful data array as well as result set from SO_LN query
                 $order['orderNumber'] = $invoice;
                 $order['orderDate'] = $details['orderDate'];
-                $order['orderStatus'] = $details['orderType'] == 'O' ? 'OPEN' : 'FINALIZED';
+                $order['orderStatus'] = $details['orderType'] == 'OPEN' ? 'OPEN' : 'FINALIZED';
                 $order['email'] = $details['email'];
                 $order['orderTotal'] = number_format( floatval(preg_replace('/[^\d\.]/', '', $details['subtotal'])) + $details['taxChg'] + $details['setupChg'], 2 );
                 $order['orderSubtotal'] = $details['subtotal'];
