@@ -26,6 +26,7 @@ class SalesOrder extends IDBTable {
 							,   'EMAIL_ADDR'=>'EMAIL_ADDR'
                             ,   'FNAME'=>'FNAME'
                             ,   'LNAME'=>'LNAME'
+                            ,   'EMP_NAME' => 'EMP_NAME'
                             ,   'TERMDATE'=>'TERMDATE'
 						);
 		$this->dbcolumns_date = array(
@@ -37,6 +38,7 @@ class SalesOrder extends IDBTable {
                             ,   "FNAME"  => "CUST.FNAME FNAME"  
                             ,   "LNAME"  => "CUST.LNAME LNAME"  
                             ,   "EMAIL_ADDR"  => "CUST.EMAIL_ADDR EMAIL_ADDR" 
+                            ,   'EMP_NAME' => "EMP.FNAME || ' ' || EMP.LNAME EMP_NAME"
         );  
     } 
 } 

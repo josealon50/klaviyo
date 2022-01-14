@@ -568,6 +568,7 @@
             $profile['phone_number'] = "1".str_replace("-","",$data->get_SHIP_TO_H_PHONE());
             $profile['secondaryPhone'] = "1".str_replace("-","",$data->get_SHIP_TO_B_PHONE());
             $profile['lastStorePurchasedFrom'] = $data->get_SO_STORE_CD();
+            $profile['lastLoggedSalespersonName'] = $data->get_EMP_NAME();
             $profile['lastLoggedSalespersonId'] = $data->get_SO_EMP_SLSP_CD1();
             $profile['lastLoggedSalespersonDate'] = date_format(new DateTime($data->get_SO_WR_DT()), "n/j/Y");
             $profile['source'] = "buyer";
