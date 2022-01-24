@@ -56,6 +56,8 @@
 
     $customerFilename = sprintf( $appconfig['klaviyo']['filename'], 'customers', date("YmdHis") ); 
     $ordersFilename = sprintf( $appconfig['klaviyo']['filename'], 'order_items', date("YmdHis") ); 
+    $orderProfileHeader = explode(",", "EMAIL,FIRST_NAME,LAST_NAME,OPEN_TO_BUY_AMOUNT,EMAIL_OPT_IN,SMS_OPT_IN,ADDRRESS,ADDRESS2,CITY,STATE,ZIP,PHONE_NUMBER,SECONDARY_PHONE,LAST_STORE_PURCHASED_FROM,EMP_NAME,LAST_LOGGED_SALESPERSON_ID,LAST_LOGGED_SALESPERSON_DATE,SOURCE,SYF,PRE_SCREEN_SYF,AFF_CARD,GENE_CARD,LAST_ORDER_DATE,LAST_ORDER_TOTAL,TOTAL_ORDER,TOTAL_REVENUE,AVG_ORDER_VALUE");
+    $orderInvoiceHeader = explode(",", "DEL_DOC_NUM,ORDER_DATE,ORDER_STATUS,EMAIL,ORDER_TOTAL,ORDER_SUB_TOTAL,TAX_AMT,SHIP_AMT,SKU,QTY,UNIT_PRICE,TOTAL_PRICE,DELIVERY_TYPE,FINAL_SHIP_DATE,SAFEGUARD");
 
     //Check if folder exists for this month and year
     $outPath = createdOutFolder();
@@ -67,7 +69,7 @@
     $profile_chunks = array_chunk( $finalizedSales['profiles'], 100 );
     $logger->debug( "Posting to klaviyo finalized orders" );
     $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks, array('Content-Type:application/json'));
-    $error = generateCSV( $finalizedSales['profiles'], $outPath, $customerFilename, $appconfig['klaviyo']['order_profile_header'] );
+    $error = generateCSV( $finalizedSales['profiles'], $outPath, $customerFilename, $orderProfileHeader );
     if ( $error ) $logger->error( "Error generating csv for finalized orders" );
     $logger->debug( "Finished processing finalized orders" );
     
@@ -78,7 +80,7 @@
     $logger->debug( "Posting to klaviyo finalized orders lines" );
     $klaviyoPost = postKlaviyoTrackEvents( $appconfig['klaviyo']['track_endpoint'], $finalizedOrders['events'], array('Accept' => 'text/html', 'Content-Type' => 'application/x-www-form-urlencoded') );
     //Generate CSV and upload to SFTP
-    $error = generateCSV($finalizedOrders['orders'], $outPath, $ordersFilename, $appconfig['klaviyo']['order_invoice_header'] );
+    $error = generateCSV($finalizedOrders['orders'], $outPath, $ordersFilename, $orderInvoiceHeader );
     if ( $error ) $logger->error( "Error generating csv for finalized orders lines" );
     $logger->debug( "Finished finalized orders lines" );
 
