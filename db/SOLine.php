@@ -94,6 +94,7 @@ class SOLine extends IDBTable {
                                     , 'PRC_OVR_CD' => 'PRC_OVR_CD'
                                     , 'PRC_OVR_CMNT' => 'PRC_OVR_CMNT'
                                     , 'PRC_OVR_DT' => 'PRC_OVR_DT'
+                                    , 'VE_CD' => 'VE_CD'
 									);
         $this->dbcolumns_date = array ( 
                                       'WAR_EXP_DT' => 'WAR_EXP_DT'
@@ -112,7 +113,6 @@ class SOLine extends IDBTable {
                                     , 'ACTIVATION_DT' => 'ACTIVATION_DT'
                                     , 'PU_DEL_DT' => 'PU_DEL_DT'
                                     , 'PRC_OVR_DT' => 'PRC_OVR_DT'
-                                    , 'VE_CD' => 'VE_CD'
                                 );
 
 
