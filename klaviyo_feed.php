@@ -15,6 +15,7 @@
  * * 01/11/21   JL  Created Script
  * * 01/13/21   JL  Added comments, and changed structure for customer prospects, added new function that creates the log folders
  * * 01/23/21   JL  Moved file csv headers from config to this script 
+ * * 01/26/21   JL  Fixed issues with vendor SAFE, marking customers with SYF, and with lines that are void or wit qty 0  
  * *
  * *
 ***/
@@ -69,7 +70,7 @@
     $finalizedSales = processFinalizedOrders( $db, $fromDate, $toDate );
     $profile_chunks = array_chunk( $finalizedSales['profiles'], 100 );
     $logger->debug( "Posting to klaviyo finalized orders" );
-    //$klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks, array('Content-Type:application/json'));
+    $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['master_list_endpoint'], $profile_chunks, array('Content-Type:application/json'));
     $error = generateCSV( $finalizedSales['profiles'], $outPath, $customerFilename, $orderProfileHeader );
     if ( $error ) $logger->error( "Error generating csv for finalized orders" );
     $logger->debug( "Finished processing finalized orders" );
@@ -79,14 +80,12 @@
     $finalizedOrders = processInvoices( $db, $finalizedSales['invoices'] );
     $profile_chunks = array_chunk( $finalizedOrders['events'], 100 );
     $logger->debug( "Posting to klaviyo finalized orders lines" );
-    //$klaviyoPost = postKlaviyoTrackEvents( $appconfig['klaviyo']['track_endpoint'], $finalizedOrders['events'], array('Accept' => 'text/html', 'Content-Type' => 'application/x-www-form-urlencoded') );
+    $klaviyoPost = postKlaviyoTrackEvents( $appconfig['klaviyo']['track_endpoint'], $finalizedOrders['events'], array('Accept' => 'text/html', 'Content-Type' => 'application/x-www-form-urlencoded') );
     //Generate CSV and upload to SFTP
     $error = generateCSV($finalizedOrders['orders'], $outPath, $ordersFilename, $orderInvoiceHeader );
     if ( $error ) $logger->error( "Error generating csv for finalized orders lines" );
     $logger->debug( "Finished finalized orders lines" );
 
-
-    /*
     //Processing Open Orders
     $logger->debug( "Processing open orders" );
     $openOrders = processOpenOrders( $db, $fromDate, $toDate );
@@ -117,7 +116,6 @@
     $klaviyoPost = postToKlaviyo( $appconfig['klaviyo']['track_prospects'], $prospectsChunks, array('Content-Type:application/json') );
     $error = generateCSV( $prospects, $outPath, $customerFilename, ''  );
     if( $error ) $logger->error("Could not Create CSV file for customer prospects" );
-     */
 
     $logger->debug( "Finishing process: klaviyo feed" );
     //END EXECUTION
