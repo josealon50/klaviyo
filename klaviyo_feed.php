@@ -58,8 +58,8 @@
 
     $customerFilename = sprintf( $appconfig['klaviyo']['filename'], 'customers', date("YmdHis") ); 
     $ordersFilename = sprintf( $appconfig['klaviyo']['filename'], 'order_items', date("YmdHis") ); 
-    $orderProfileHeader = explode(",", "EMAIL,FIRST_NAME,LAST_NAME,OPEN_TO_BUY_AMOUNT,EMAIL_OPT_IN,SMS_OPT_IN,ADDRRESS,ADDRESS2,CITY,STATE,ZIP,PHONE_NUMBER,SECONDARY_PHONE,LAST_STORE_PURCHASED_FROM,EMP_NAME,LAST_LOGGED_SALESPERSON_ID,LAST_LOGGED_SALESPERSON_DATE,SOURCE,SYF,PRE_SCREEN_SYF,AFF_CARD,GENE_CARD,LAST_ORDER_DATE,LAST_ORDER_TOTAL,TOTAL_ORDER,TOTAL_REVENUE,AVG_ORDER_VALUE");
-    $orderInvoiceHeader = explode(",", "DEL_DOC_NUM,ORDER_DATE,ORDER_STATUS,EMAIL,ORDER_TOTAL,ORDER_SUB_TOTAL,TAX_AMT,SHIP_AMT,SKU,QTY,UNIT_PRICE,TOTAL_PRICE,DELIVERY_TYPE,FINAL_SHIP_DATE,SAFEGUARD");
+    $orderProfileHeader = explode(",", "EMAIL,FIRST_NAME,LAST_NAME,OPEN_TO_BUY_AMOUNT,EMAIL_OPT_IN,ADDRRESS,ADDRESS2,CITY,STATE,ZIP,LAST_STORE_PURCHASED_FROM,EMP_NAME,SOURCE,SYF,PRE_SCREEN_SYF,AFF_CARD,GENE_CARD,LAST_ORDER_DATE,LAST_ORDER_TOTAL,TOTAL_ORDER,TOTAL_REVENUE,AVG_ORDER_VALUE");
+    $orderInvoiceHeader = explode(",", "DEL_DOC_NUM,ORDER_DATE,ORDER_STATUS,EMAIL,ORDER_TOTAL,ORDER_SUB_TOTAL,TAX_AMT,SHIP_AMT,SKU,QTY,TOTAL_PRICE,DELIVERY_TYPE,FINAL_SHIP_DATE,SAFEGUARD");
 
     //Check if folder exists for this month and year
     $outPath = createdOutFolder();
@@ -441,7 +441,7 @@
                 $order['shipAmt'] = '0';
                 $order['SKU'] = $lines->get_ITM_CD();
                 $order['qty'] = $lines->get_QTY();
-                $order['unitPrice'] = $lines->get_UNIT_PRC();
+                //$order['unitPrice'] = $lines->get_UNIT_PRC();
                 $order['totalPrice'] = $lines->get_UNIT_PRC() * $lines->get_QTY();
                 $order['deliveryType'] = $lines->get_PICKED();
                 $order['finalShipDate'] = $details['finalShipDate'];
@@ -571,18 +571,18 @@
             $profile['lastName'] = $data->get_LNAME();
             $profile['openToBuyAmount'] = $customerFinanceInfo['SYF']['OPEN_TO_BUY'];
             $profile['emailOptIn'] = "TRUE";
-            $profile['SMSOptIn'] = $data->get_USR_FLD_2();
+            //$profile['SMSOptIn'] = $data->get_USR_FLD_2();
             $profile['address'] = $data->get_SHIP_TO_ADDR1();
             $profile['address2'] = $data->get_SHIP_TO_ADDR2();
             $profile['city'] = $data->get_SHIP_TO_CITY();
             $profile['state'] = $data->get_SHIP_TO_ST_CD();
             $profile['zip'] = $data->get_SHIP_TO_ZIP_CD();
-            $profile['phone_number'] = "1".str_replace("-","",$data->get_SHIP_TO_H_PHONE());
-            $profile['secondaryPhone'] = "1".str_replace("-","",$data->get_SHIP_TO_B_PHONE());
+            //$profile['phone_number'] = "1".str_replace("-","",$data->get_SHIP_TO_H_PHONE());
+            //$profile['secondaryPhone'] = "1".str_replace("-","",$data->get_SHIP_TO_B_PHONE());
             $profile['lastStorePurchasedFrom'] = $data->get_SO_STORE_CD();
             $profile['lastLoggedSalespersonName'] = $data->get_EMP_NAME();
-            $profile['lastLoggedSalespersonId'] = $data->get_SO_EMP_SLSP_CD1();
-            $profile['lastLoggedSalespersonDate'] = date_format(new DateTime($data->get_SO_WR_DT()), "n/j/Y");
+            //$profile['lastLoggedSalespersonId'] = $data->get_SO_EMP_SLSP_CD1();
+            //$profile['lastLoggedSalespersonDate'] = date_format(new DateTime($data->get_SO_WR_DT()), "n/j/Y");
             $profile['source'] = "BUYER";
             $profile['synchronyCreditCard'] = $customerFinanceInfo['SYF']['HAS_ACCT'];
             $profile['PreScreenSynchronyCard'] = $customerFinanceInfo['SYF']['HAS_ACCT'];
@@ -656,17 +656,17 @@
                 'lastName' => $prospects->get_LNAME(),
                 'openToBuyAmount' => '',
                 'emailOptIn' => '', 
-                'SMSOptIn' => '',
+                //'SMSOptIn' => '',
                 'address' => '',
                 'address2' => '',
                 'city' => '',
                 'state' => '',
                 'zip' => '',
-                'phone_number' => $prospects->get_PHONE() !== '' ? "1" . str_replace("-", "", $prospects->get_PHONE()) : '',
-                'secondaryPhone' => '',
+                //'phone_number' => $prospects->get_PHONE() !== '' ? "1" . str_replace("-", "", $prospects->get_PHONE()) : '',
+                //'secondaryPhone' => '',
                 'lastStorePurchasedFrom' => '',
-                'lastLoggedSalesPersonId' => $prospects->get_EMP_CD(),
-                'lastLoggedSalespersonDate' => '',
+                //'lastLoggedSalesPersonId' => $prospects->get_EMP_CD(),
+                //'lastLoggedSalespersonDate' => '',
                 'source' => 'PROSPECT',
                 'synchronyCreditCard' => '',
                 'PreScreenSynchronyCard' => '',
