@@ -12,10 +12,12 @@
  * *
  * * Out: CSVs generated files
  * *-------------------------------------------------------------------------------------------------------------------------------------
- * * 01/11/21   JL  Created Script
- * * 01/13/21   JL  Added comments, and changed structure for customer prospects, added new function that creates the log folders
- * * 01/23/21   JL  Moved file csv headers from config to this script 
- * * 01/26/21   JL  Fixed issues with vendor SAFE, marking customers with SYF, and with lines that are void or wit qty 0  
+ * * 01/11/22   JL  Created Script
+ * * 01/13/22   JL  Added comments, and changed structure for customer prospects, added new function that creates the log folders
+ * * 01/23/22   JL  Moved file csv headers from config to this script 
+ * * 01/26/22   JL  Fixed issues with vendor SAFE, marking customers with SYF, and with lines that are void or wit qty 0  
+ * * 02/02/22   JL  Removed header from SMS_OPT_IN, PHONE_NUMBER, SECONDARY_PHONE, LAST_LOGGED_SALESPERSON_ID, LAST_LOGGED_SALESPERSON_DATE 
+ * *                and UNIT_PRICE  
  * *
  * *
 ***/
